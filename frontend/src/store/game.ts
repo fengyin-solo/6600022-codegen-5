@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
-import type { BoardState, Move, GameRecord, AIConfig, GameStatus } from '../types';
+import { ref, computed, watch } from 'vue';
+import type { BoardState, Move, GameRecord, AIConfig, GameStatus, Annotation } from '../types';
 
 const BOARD_SIZE = 15;
 const EMPTY = 0;
@@ -207,9 +207,20 @@ export const useGameStore = defineStore('game', () => {
   const replayBoard = ref<BoardState>(createEmptyBoard());
   const isReplayPlaying = ref(false);
   const replaySpeed = ref(1000);
+  const currentReplayRecordId = ref<string | null>(null);
+  const replayAnnotations = ref<Annotation[]>([]);
 
   const currentMoveCount = computed(() => moves.value.length);
   const isGameOver = computed(() => status.value === 'finished');
+
+  const currentReplayAnnotation = computed(() => {
+    if (replayIndex.value === 0) return null;
+    return replayAnnotations.value.find(a => a.moveIndex === replayIndex.value) || null;
+  });
+
+  const annotatedMoveIndices = computed(() => {
+    return new Set(replayAnnotations.value.map(a => a.moveIndex));
+  });
 
   function startGame() {
     board.value = createEmptyBoard();
@@ -268,6 +279,7 @@ export const useGameStore = defineStore('game', () => {
       winner: winner.value,
       createdAt: new Date().toLocaleString('zh-CN'),
       duration: moves.value.length > 0 ? moves.value[moves.value.length - 1].timestamp - moves.value[0].timestamp : 0,
+      annotations: [],
     };
     gameRecords.value.unshift(record);
   }
@@ -278,6 +290,8 @@ export const useGameStore = defineStore('game', () => {
     replayBoard.value = createEmptyBoard();
     status.value = 'replaying';
     isReplayPlaying.value = false;
+    currentReplayRecordId.value = record.id;
+    replayAnnotations.value = [...(record.annotations || [])];
   }
 
   function replayStepForward() {
@@ -348,19 +362,103 @@ export const useGameStore = defineStore('game', () => {
     isReplayPlaying.value = false;
     if (replayTimer) clearInterval(replayTimer);
     replayTimer = null;
+    saveAnnotationsToRecord();
     status.value = 'idle';
+    currentReplayRecordId.value = null;
+    replayAnnotations.value = [];
+  }
+
+  function saveAnnotationsToRecord() {
+    if (!currentReplayRecordId.value) return;
+    const record = gameRecords.value.find(r => r.id === currentReplayRecordId.value);
+    if (record) {
+      record.annotations = [...replayAnnotations.value];
+    }
+  }
+
+  function addAnnotation(content: string) {
+    if (replayIndex.value === 0) return;
+    const existing = replayAnnotations.value.find(a => a.moveIndex === replayIndex.value);
+    if (existing) {
+      editAnnotation(existing.id, content);
+      return;
+    }
+    const now = Date.now();
+    const annotation: Annotation = {
+      id: `${currentReplayRecordId.value}-${replayIndex.value}-${now}`,
+      moveIndex: replayIndex.value,
+      content,
+      createdAt: now,
+      updatedAt: now,
+    };
+    replayAnnotations.value.push(annotation);
+    saveAnnotationsToRecord();
+  }
+
+  function editAnnotation(id: string, content: string) {
+    const annotation = replayAnnotations.value.find(a => a.id === id);
+    if (annotation) {
+      annotation.content = content;
+      annotation.updatedAt = Date.now();
+      saveAnnotationsToRecord();
+    }
+  }
+
+  function deleteAnnotation(id: string) {
+    const index = replayAnnotations.value.findIndex(a => a.id === id);
+    if (index !== -1) {
+      replayAnnotations.value.splice(index, 1);
+      saveAnnotationsToRecord();
+    }
+  }
+
+  function getAnnotationForMove(moveIndex: number): Annotation | null {
+    return replayAnnotations.value.find(a => a.moveIndex === moveIndex) || null;
   }
 
   function checkWin(row: number, col: number): boolean {
     return checkWinAt(board.value, row, col, board.value[row][col]);
   }
 
+  const STORAGE_KEY = 'gobang-game-records';
+
+  function loadRecordsFromStorage() {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as GameRecord[];
+        gameRecords.value = parsed.map(r => ({
+          ...r,
+          annotations: r.annotations || [],
+        }));
+      }
+    } catch (e) {
+      console.error('Failed to load game records from localStorage:', e);
+    }
+  }
+
+  function saveRecordsToStorage() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(gameRecords.value));
+    } catch (e) {
+      console.error('Failed to save game records to localStorage:', e);
+    }
+  }
+
+  loadRecordsFromStorage();
+
+  watch(gameRecords, () => {
+    saveRecordsToStorage();
+  }, { deep: true });
+
   return {
     board, currentPlayer, moves, status, winner, gameRecords, aiConfig, isAiThinking,
     replayMoves, replayIndex, replayBoard, isReplayPlaying, replaySpeed,
+    replayAnnotations, currentReplayAnnotation, annotatedMoveIndices, currentReplayRecordId,
     currentMoveCount, isGameOver,
     startGame, placeStone, aiMove, saveRecord,
     startReplay, replayStepForward, replayStepBack, replayGoToStart, replayGoToEnd,
     toggleReplayPlay, setReplaySpeed, stopReplay, checkWin,
+    addAnnotation, editAnnotation, deleteAnnotation, getAnnotationForMove,
   };
 });

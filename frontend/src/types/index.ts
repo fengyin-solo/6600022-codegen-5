@@ -7,12 +7,21 @@ export interface Move {
   timestamp: number;
 }
 
+export interface Annotation {
+  id: string;
+  moveIndex: number;
+  content: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface GameRecord {
   id: string;
   moves: Move[];
   winner: number | null; // 0=draw, 1=black, 2=white, null=ongoing
   createdAt: string;
   duration: number;
+  annotations: Annotation[];
 }
 
 export interface AIConfig {

@@ -59,7 +59,7 @@ function drawBoard(ctx: CanvasRenderingContext2D) {
   }
 }
 
-function drawStone(ctx: CanvasRenderingContext2D, row: number, col: number, player: number, isLast: boolean) {
+function drawStone(ctx: CanvasRenderingContext2D, row: number, col: number, player: number, isLast: boolean, hasAnnotation: boolean) {
   const x = PADDING + col * CELL_SIZE;
   const y = PADDING + row * CELL_SIZE;
   const radius = CELL_SIZE * 0.42;
@@ -88,6 +88,18 @@ function drawStone(ctx: CanvasRenderingContext2D, row: number, col: number, play
     ctx.fillStyle = '#ef4444';
     ctx.fill();
   }
+
+  if (hasAnnotation) {
+    const markerX = x + radius * 0.6;
+    const markerY = y - radius * 0.6;
+    ctx.beginPath();
+    ctx.arc(markerX, markerY, 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#facc15';
+    ctx.fill();
+    ctx.strokeStyle = '#854d0e';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
 }
 
 function render() {
@@ -102,11 +114,22 @@ function render() {
   const currentMoves = movesList.value;
   const lastMove = currentMoves.length > 0 ? currentMoves[currentMoves.length - 1] : null;
 
+  const annotatedIndices = new Set<number>();
+  if (store.status === 'replaying') {
+    store.replayAnnotations.forEach(a => {
+      if (a.moveIndex <= store.replayIndex) {
+        annotatedIndices.add(a.moveIndex - 1);
+      }
+    });
+  }
+
   for (let r = 0; r < BOARD_SIZE; r++) {
     for (let c = 0; c < BOARD_SIZE; c++) {
       if (currentBoard[r][c] !== 0) {
         const isLast = lastMove !== null && lastMove.row === r && lastMove.col === c;
-        drawStone(ctx, r, c, currentBoard[r][c], isLast);
+        const moveIndex = currentMoves.findIndex(m => m.row === r && m.col === c);
+        const hasAnnotation = annotatedIndices.has(moveIndex);
+        drawStone(ctx, r, c, currentBoard[r][c], isLast, hasAnnotation);
       }
     }
   }
@@ -135,5 +158,5 @@ function handleClick(e: MouseEvent) {
 }
 
 onMounted(() => render());
-watch([boardData, () => store.replayIndex, () => store.status], () => render());
+watch([boardData, () => store.replayIndex, () => store.status, () => store.replayAnnotations], () => render());
 </script>
